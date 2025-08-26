@@ -1,0 +1,36 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  workflow_dispatch:
+    inputs:
+      commit_hash:
+        description: 'The commit hash or branch name to checkout'
+        required: true
+        type: string
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: clavinjune/opentelemetry-collector-contrib
+          ref: ${{ github.event.inputs.commit_hash }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - run: make otelcontribcol
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
