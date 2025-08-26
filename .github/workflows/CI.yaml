@@ -34,6 +34,92 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          cat <<EOF > config.yaml
+            extensions:
+              health_check:
+              pprof:
+                endpoint: 0.0.0.0:1777
+              zpages:
+                endpoint: 0.0.0.0:55679
+
+            receivers:
+              otlp:
+                protocols:
+                  grpc:
+                    endpoint: 0.0.0.0:4317
+                  http:
+                    endpoint: 0.0.0.0:4318
+
+              # Collect own metrics
+              prometheus:
+                config:
+                  scrape_configs:
+                  - job_name: 'otel-collector'
+                    scrape_interval: 10s
+                    static_configs:
+                    - targets: ['0.0.0.0:8888']
+
+              jaeger:
+                protocols:
+                  grpc:
+                    endpoint: 0.0.0.0:14250
+                  thrift_binary:
+                    endpoint: 0.0.0.0:6832
+                  thrift_compact:
+                    endpoint: 0.0.0.0:6831
+                  thrift_http:
+                    endpoint: 0.0.0.0:14268
+
+              zipkin:
+                endpoint: 0.0.0.0:9411
+
+            processors:
+              batch:
+
+            exporters:
+              debug:
+                verbosity: detailed
+
+            service:
+
+              pipelines:
+
+                traces:
+                  receivers: [otlp, jaeger, zipkin]
+                  processors: [batch]
+                  exporters: [debug]
+
+                metrics:
+                  receivers: [otlp, prometheus]
+                  processors: [batch]
+                  exporters: [debug]
+
+                logs:
+                  receivers: [otlp]
+                  processors: [batch]
+                  exporters: [debug]
+
+              extensions: [health_check, pprof, zpages]
+          EOF
+      - run: |
+          cat <<EOF > Dockerfile
+            FROM alpine:3.22@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1 as certs
+            RUN apk --update add ca-certificates
+
+            FROM scratch
+
+            ARG USER_UID=10001
+            ARG USER_GID=10001
+            USER ${USER_UID}:${USER_GID}
+
+            COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+            COPY --chmod=755 /bin/otelcol-contribotelcontribcol_linux_amd64 /otelcol-contrib
+            COPY config.yaml /etc/otelcol-contrib/config.yaml
+            ENTRYPOINT ["/otelcol-contrib"]
+            CMD ["--config", "/etc/otelcol-contrib/config.yaml"]
+            EXPOSE 4317 4318 55679
+          EOF
       - uses: docker/build-push-action@v6
         with:
           context: .
